@@ -33,7 +33,8 @@ public static class BankStatementReader
             return BnbStatementReader.Read(content);
         }
 
-        var rows = ExcelRows.FirstSheet(content);
+        var sheets = ExcelRows.Sheets(content);
+        var rows = sheets[0];
         if (LedgerReader.LooksLikeLedger(rows))
         {
             throw new MatchingFileException("Ese archivo es el Mayor de ASSINET, no el extracto del banco. ¿Se invirtieron los archivos?");
@@ -44,7 +45,7 @@ public static class BankStatementReader
         }
         if (rows.Any(row => ExcelRows.Key(ExcelRows.Text(row, 0)) == "fecha" && row.Any(cell => ExcelRows.Key(cell?.ToString()) == "credito")))
         {
-            return BmscStatementReader.Read(rows);
+            return BmscStatementReader.Read(rows, sheets.Skip(1).ToList());
         }
 
         throw new MatchingFileException(
@@ -77,12 +78,13 @@ public static class BankStatementReader
 /// </summary>
 internal static partial class BmscStatementReader
 {
-    public static BankStatement Read(List<object?[]> rows)
+    public static BankStatement Read(List<object?[]> rows, List<List<object?[]>> otherSheets)
     {
         var headerIndex = rows.FindIndex(row =>
             ExcelRows.Key(ExcelRows.Text(row, 0)) == "fecha" && row.Any(cell => ExcelRows.Key(cell?.ToString()) == "credito"));
 
         var columns = HeaderColumns(rows[headerIndex]);
+        var beneficiaries = PayrollBeneficiaries(otherSheets);
         int Col(string key) => columns.TryGetValue(key, out var index) ? index : -1;
 
         var accountNumber = ValueAfterLabel(rows, headerIndex, "nro de cuenta")
@@ -132,10 +134,61 @@ internal static partial class BmscStatementReader
             throw new MatchingFileException("El extracto no tiene movimientos.");
         }
 
+        // Una planilla sale en el extracto como un solo débito a nombre de ASEA MBO; sus beneficiarios
+        // están en la hoja "Reporte de Pagos". Se agregan como destinatario para que el cotejo los vea
+        // ("Débito 13/10/2026 Flores Mery" con la planilla PRESUPLANZ que le pagó a Mery Flores Huanca).
+        foreach (var movement in movements.Where(m => m.Debit > 0 && m.TemplateName is not null))
+        {
+            if (beneficiaries.TryGetValue(movement.TemplateName!, out var names))
+            {
+                var joined = string.Join(", ", names);
+                movement.RecipientName = joined.Length <= 200 ? joined : joined[..200];
+            }
+        }
+
         var period = rows.Take(headerIndex).Select(row => BankStatementReader.PeriodIn(ExcelRows.Text(row, 0))).FirstOrDefault(p => p is not null)
             ?? (movements.Min(m => m.Date), movements.Max(m => m.Date));
         var (opening, closing) = BankStatementReader.Balances(movements);
         return new BankStatement(BankStatementReader.Bmsc, accountNumber, period.Start, period.End, opening, closing, movements);
+    }
+
+    /// <summary>"Reporte de Pagos": nombre de la planilla (Nro Planilla) → sus beneficiarios.</summary>
+    private static Dictionary<string, List<string>> PayrollBeneficiaries(List<List<object?[]>> sheets)
+    {
+        var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sheet in sheets)
+        {
+            var headerIndex = sheet.FindIndex(row => row.Any(cell => ExcelRows.Key(cell?.ToString()) == "beneficiario"));
+            if (headerIndex < 0)
+            {
+                continue;
+            }
+            var header = sheet[headerIndex];
+            var payrollCol = Array.FindIndex(header, cell => ExcelRows.Key(cell?.ToString()).StartsWith("nro planilla"));
+            var nameCol = Array.FindIndex(header, cell => ExcelRows.Key(cell?.ToString()) == "beneficiario");
+            if (payrollCol < 0)
+            {
+                continue;
+            }
+            foreach (var row in sheet.Skip(headerIndex + 1))
+            {
+                var payroll = ExcelRows.Text(row, payrollCol);
+                var name = ExcelRows.Text(row, nameCol);
+                if (payroll is null || name is null)
+                {
+                    continue;
+                }
+                if (!result.TryGetValue(payroll, out var names))
+                {
+                    result[payroll] = names = [];
+                }
+                if (!names.Contains(name, StringComparer.OrdinalIgnoreCase))
+                {
+                    names.Add(name);
+                }
+            }
+        }
+        return result;
     }
 
     /// <summary>Encabezado normalizado (sin tildes, "Cod, Bca," como "cod. bca.") a su columna.</summary>

@@ -11,7 +11,7 @@ public interface IReconciliationService
     Task<ResponseGetObject> GetAll(PaginationQueryFilter paginationQueryFilter, ReconciliationQueryFilter filter);
     Task<ResponseGetObject> Get(long id);
     /// <summary>Lee el extracto y el Mayor, crea la conciliación y hace el cotejo automático.</summary>
-    Task<ResponsePost> Create(byte[] bankContent, string bankFileName, byte[] ledgerContent, string ledgerFileName);
+    Task<ResponsePost> Create(byte[] bankContent, string bankFileName, byte[] ledgerContent, string ledgerFileName, string? scope);
     Task<ResponsePost> Delete(long id);
     /// <summary>Vuelve a cotejar: borra lo que propuso el sistema y respeta lo que decidió contabilidad.</summary>
     Task<ResponsePost> Rematch(long id);
@@ -23,7 +23,10 @@ public interface IReconciliationService
     Task<ResponsePost> SetLedgerEntryNote(long id, long ledgerEntryId, NoteDto request);
     Task<ResponsePost> SetNotes(long id, NoteDto request);
     Task<ResponsePost> SetClosed(long id, bool closed);
-    Task<ReportResult> Export(long id);
+    /// <summary>El Excel de la conciliación; con side y/o status, solo esas líneas ("exportar lo que veo").</summary>
+    Task<ReportResult> Export(long id, string? side, string? status);
+    /// <summary>Reporte anual por meses: depósitos no identificados y registros sin depósito.</summary>
+    Task<ReportResult> AnnualReport(int year, long? bankAccountId);
 }
 
 public interface IBankAccountService

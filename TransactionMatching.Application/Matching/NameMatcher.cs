@@ -53,7 +53,12 @@ public static partial class NameMatcher
             .ToList();
     }
 
-    /// <summary>0 (nada en común) a 1 (todas las palabras de ASSINET están en el banco).</summary>
+    /// <summary>
+    /// 0 (nada en común) a 1 (el nombre más corto está completo dentro del otro). Se mide sobre el
+    /// más corto porque cada lado escribe distinto: el banco trae el nombre completo y ASSINET
+    /// apellido y nombre, a veces con un nombre de más ("Limachi Quispe" = "Limachi Quispe Maria",
+    /// "Castellón Luis" = "Castellón Luis Ariadne").
+    /// </summary>
     public static double Similarity(IReadOnlyList<string> bankTokens, IReadOnlyList<string> ledgerTokens)
     {
         if (bankTokens.Count == 0 || ledgerTokens.Count == 0)
@@ -71,7 +76,11 @@ public static partial class NameMatcher
             // Por debajo de 0.85 dos palabras ya son distintas ("Rojas" y "Rosa"): no suman.
             total += best >= 0.85 ? best : 0;
         }
-        return total / ledgerTokens.Count;
+
+        var shorter = Math.Min(ledgerTokens.Count, bankTokens.Count);
+        var similarity = Math.Min(1, total / shorter);
+        // Una sola palabra en común no alcanza para decir que es la misma persona ("Mamani").
+        return shorter == 1 && Math.Max(ledgerTokens.Count, bankTokens.Count) > 1 ? Math.Min(similarity, 0.6) : similarity;
     }
 
     public static double JaroWinkler(string a, string b)

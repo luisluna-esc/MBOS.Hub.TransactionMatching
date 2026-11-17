@@ -157,6 +157,8 @@ CREATE TABLE reconciliation (
     period_start DATE NOT NULL,
     period_end DATE NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'Open',
+    -- Qué se concilia: 'Income' (ingresos), 'Expense' (egresos) o 'All' (los dos).
+    scope VARCHAR(10) NOT NULL DEFAULT 'All',
     bank_file_name VARCHAR(255) NOT NULL,
     ledger_file_name VARCHAR(255) NOT NULL,
     bank_opening_balance NUMERIC(14,2),
@@ -171,8 +173,9 @@ CREATE TABLE reconciliation (
     CONSTRAINT fk_reconciliation_bank_account FOREIGN KEY (bank_account_id) REFERENCES bank_account(bank_account_id),
     CONSTRAINT fk_reconciliation_created_by FOREIGN KEY (created_by) REFERENCES app_user(app_user_id),
     CONSTRAINT fk_reconciliation_closed_by FOREIGN KEY (closed_by) REFERENCES app_user(app_user_id),
-    CONSTRAINT uq_reconciliation_period UNIQUE (bank_account_id, period_start),
-    CONSTRAINT ck_reconciliation_status CHECK (status IN ('Open', 'Closed'))
+    CONSTRAINT uq_reconciliation_period UNIQUE (bank_account_id, period_start, scope),
+    CONSTRAINT ck_reconciliation_status CHECK (status IN ('Open', 'Closed')),
+    CONSTRAINT ck_reconciliation_scope CHECK (scope IN ('All', 'Income', 'Expense'))
 );
 
 -- Filas del extracto del banco, con todas sus columnas. credit = ingreso, debit = egreso.

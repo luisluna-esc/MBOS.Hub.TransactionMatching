@@ -105,7 +105,7 @@ public static partial class LedgerReader
     }
 
     /// <summary>
-    /// "Transferencia 06/10/2026 Lopez Paula" → tipo, fecha y nombre. Si no sigue ese formato, el
+    /// "Transferencia 06/10/2026 Lopez Paula" (o "01/10/26") → tipo, fecha y nombre. Si no sigue ese formato, el
     /// nombre es todo el texto y la fecha queda vacía (el cotejo usa entonces la fecha contable).
     /// </summary>
     public static void ParseDescription(LedgerEntry entry)
@@ -158,7 +158,7 @@ public static partial class LedgerReader
     private static string? LongestNumber(string text) =>
         Numbers().Matches(text).Select(m => m.Value.Replace("-", "")).OrderByDescending(n => n.Length).FirstOrDefault(n => n.Length >= 6);
 
-    [GeneratedRegex(@"^\s*(?<type>\S+)\s+(?<date>\d{1,2}/\d{1,2}/\d{4})\s+(?<name>.+?)\s*$")]
+    [GeneratedRegex(@"^\s*(?<type>\S+)\s+(?<date>\d{1,2}/\d{1,2}/(?:\d{4}|\d{2}))\s+(?<name>.+?)\s*$")]
     private static partial Regex DescriptionPattern();
 
     [GeneratedRegex(@"\d[\d-]*\d")]

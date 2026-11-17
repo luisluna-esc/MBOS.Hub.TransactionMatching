@@ -34,6 +34,7 @@ public class ReconciliationConfiguration : IEntityTypeConfiguration<Reconciliati
         entity.Property(e => e.PeriodStart).HasColumnName("period_start");
         entity.Property(e => e.PeriodEnd).HasColumnName("period_end");
         entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(20).IsRequired();
+        entity.Property(e => e.Scope).HasColumnName("scope").HasMaxLength(10).IsRequired();
         entity.Property(e => e.BankFileName).HasColumnName("bank_file_name").HasMaxLength(255).IsRequired();
         entity.Property(e => e.LedgerFileName).HasColumnName("ledger_file_name").HasMaxLength(255).IsRequired();
         entity.Property(e => e.BankOpeningBalance).HasColumnName("bank_opening_balance").HasPrecision(14, 2);

@@ -49,6 +49,10 @@ public class ReconciliationService : IReconciliationService
         {
             query = query.Where(r => r.Status == filter.Status);
         }
+        if (!string.IsNullOrWhiteSpace(filter.Scope))
+        {
+            query = query.Where(r => r.Scope == filter.Scope);
+        }
         if (!string.IsNullOrWhiteSpace(paginationQueryFilter.SearchCriteria))
         {
             var search = paginationQueryFilter.SearchCriteria;
@@ -79,6 +83,7 @@ public class ReconciliationService : IReconciliationService
                 PeriodStart = r.PeriodStart,
                 PeriodEnd = r.PeriodEnd,
                 Status = r.Status,
+                Scope = r.Scope,
                 MatchedCount = c.Matched,
                 ToReviewCount = c.ToReview,
                 MissingInLedgerCount = c.Bank - c.Matched - c.ToReview,
@@ -109,7 +114,11 @@ public class ReconciliationService : IReconciliationService
         var lines = ReconciliationLines.Build(bank, ledger, matches);
         var income = ReconciliationLines.Summary(lines, ReconciliationSide.Income);
         var expense = ReconciliationLines.Summary(lines, ReconciliationSide.Expense);
-        var reconciled = ReconciliationLines.ReconciledBalance(reconciliation.LedgerClosingBalance, income, expense);
+        // El cuadre de saldos solo tiene sentido con las dos partes: con solo ingresos o solo egresos
+        // los saldos del banco y del Mayor incluyen la otra parte, que no se cargó.
+        var reconciled = reconciliation.Scope == ReconciliationScope.All
+            ? ReconciliationLines.ReconciledBalance(reconciliation.LedgerClosingBalance, income, expense)
+            : null;
         var users = await UserNames([reconciliation.CreatedById]);
 
         return Responses.Ok(new ReconciliationDetailDto
@@ -119,6 +128,7 @@ public class ReconciliationService : IReconciliationService
             PeriodStart = reconciliation.PeriodStart,
             PeriodEnd = reconciliation.PeriodEnd,
             Status = reconciliation.Status,
+            Scope = reconciliation.Scope,
             BankFileName = reconciliation.BankFileName,
             LedgerFileName = reconciliation.LedgerFileName,
             BankOpeningBalance = reconciliation.BankOpeningBalance,
@@ -137,8 +147,13 @@ public class ReconciliationService : IReconciliationService
         });
     }
 
-    public async Task<ResponsePost> Create(byte[] bankContent, string bankFileName, byte[] ledgerContent, string ledgerFileName)
+    public async Task<ResponsePost> Create(byte[] bankContent, string bankFileName, byte[] ledgerContent, string ledgerFileName, string? scope)
     {
+        scope = string.IsNullOrWhiteSpace(scope) ? ReconciliationScope.All : scope;
+        if (!ReconciliationScope.Values.Contains(scope))
+        {
+            return Responses.PostError(HttpStatusCode.BadRequest, "Elige qué conciliar: ingresos, egresos o ambos.");
+        }
         if (bankContent.Length == 0 || ledgerContent.Length == 0)
         {
             return Responses.PostError(HttpStatusCode.BadRequest, "Sube los dos archivos: el extracto del banco y el Mayor de ASSINET.");
@@ -177,11 +192,27 @@ public class ReconciliationService : IReconciliationService
             return Responses.PostError(HttpStatusCode.BadRequest,
                 $"El extracto es de {Describe(account, statement.AccountNumber)} y el Mayor de {Describe(ledgerAccount, ledger.AccountNumber)}. Tienen que ser de la misma cuenta.");
         }
-        if (account is not null && await _unitOfWork.Repository<ReconciliationEntity>().Query()
-                .AnyAsync(r => r.BankAccountId == account.BankAccountId && r.PeriodStart == statement.PeriodStart))
+        if (account is not null)
         {
-            return Responses.PostError(HttpStatusCode.Conflict,
-                $"Ya existe la conciliación de {account.Name} del {statement.PeriodStart:dd/MM/yyyy} al {statement.PeriodEnd:dd/MM/yyyy}. Elimínala para volver a subirla.");
+            // Un mes puede tener una de ingresos y otra de egresos, o una de las dos juntas (no ambas cosas).
+            var existing = await _unitOfWork.Repository<ReconciliationEntity>().Query()
+                .Where(r => r.BankAccountId == account.BankAccountId && r.PeriodStart == statement.PeriodStart)
+                .Select(r => r.Scope).ToListAsync();
+            var clash = existing.FirstOrDefault(s => s == scope || s == ReconciliationScope.All || scope == ReconciliationScope.All);
+            if (clash is not null)
+            {
+                return Responses.PostError(HttpStatusCode.Conflict,
+                    $"Ya existe la conciliación de {ScopeText(clash)} de {account.Department ?? account.Name} ({account.Name}) del {statement.PeriodStart:dd/MM/yyyy} al {statement.PeriodEnd:dd/MM/yyyy}. Elimínala para volver a subirla.");
+            }
+        }
+
+        // Solo la parte elegida. El banco y la contabilidad lo ven al revés: un ingreso es Crédito en el
+        // banco y Débito en ASSINET; un egreso, Débito en el banco y Crédito en ASSINET.
+        var movements = statement.Movements.Where(m => scope == ReconciliationScope.All || (scope == ReconciliationScope.Income ? m.Credit > 0 : m.Debit > 0)).ToList();
+        var entries = ledger.Entries.Where(e => scope == ReconciliationScope.All || (scope == ReconciliationScope.Income ? e.Debit > 0 : e.Credit > 0)).ToList();
+        if (movements.Count == 0 && entries.Count == 0)
+        {
+            return Responses.PostError(HttpStatusCode.BadRequest, $"Ni el extracto ni el Mayor tienen {ScopeText(scope)} en ese período.");
         }
 
         var userId = _currentUserService.AppUserId;
@@ -190,6 +221,7 @@ public class ReconciliationService : IReconciliationService
             PeriodStart = statement.PeriodStart,
             PeriodEnd = statement.PeriodEnd,
             Status = ReconciliationStatus.Open,
+            Scope = scope,
             BankFileName = Truncate(bankFileName, 255),
             LedgerFileName = Truncate(ledgerFileName, 255),
             BankOpeningBalance = statement.OpeningBalance,
@@ -226,19 +258,19 @@ public class ReconciliationService : IReconciliationService
             await _unitOfWork.Repository<ReconciliationEntity>().AddAsync(reconciliation);
             await _unitOfWork.SaveChangesAsync();
 
-            foreach (var movement in statement.Movements)
+            foreach (var movement in movements)
             {
                 movement.ReconciliationId = reconciliation.ReconciliationId;
                 await _unitOfWork.Repository<BankMovement>().AddAsync(movement);
             }
-            foreach (var entry in ledger.Entries)
+            foreach (var entry in entries)
             {
                 entry.ReconciliationId = reconciliation.ReconciliationId;
                 await _unitOfWork.Repository<LedgerEntry>().AddAsync(entry);
             }
             await _unitOfWork.SaveChangesAsync();
 
-            await AddProposals(reconciliation.ReconciliationId, statement.Movements, ledger.Entries);
+            await AddProposals(reconciliation.ReconciliationId, movements, entries);
             await _unitOfWork.SaveChangesAsync();
         });
 
@@ -287,6 +319,20 @@ public class ReconciliationService : IReconciliationService
                 .Where(b => b.ReconciliationId == id && !keptBank.Contains(b.BankMovementId)).OrderBy(b => b.LineNumber).ToListAsync();
             var ledger = await _unitOfWork.Repository<LedgerEntry>().Query()
                 .Where(l => l.ReconciliationId == id && !keptLedger.Contains(l.LedgerEntryId)).OrderBy(l => l.LineNumber).ToListAsync();
+
+            // La descripción se vuelve a leer: así una conciliación cargada antes de una mejora del
+            // lector (ej. fechas "01/10/26") se beneficia sin borrarla ni volver a subir los archivos.
+            foreach (var entry in ledger)
+            {
+                var (type, date, name) = (entry.MovementType, entry.MovementDate, entry.CounterpartyName);
+                LedgerReader.ParseDescription(entry);
+                if (entry.MovementType != type || entry.MovementDate != date || entry.CounterpartyName != name)
+                {
+                    _unitOfWork.Repository<LedgerEntry>().Update(entry);
+                }
+            }
+            await _unitOfWork.SaveChangesAsync();
+
             await AddProposals(id, bank, ledger);
             await _unitOfWork.SaveChangesAsync();
         });
@@ -465,7 +511,7 @@ public class ReconciliationService : IReconciliationService
         return Responses.Saved(id, closed ? "Conciliación cerrada." : "Conciliación abierta de nuevo.");
     }
 
-    public async Task<ReportResult> Export(long id)
+    public async Task<ReportResult> Export(long id, string? side, string? status)
     {
         var data = await Load(id);
         if (data is null)
@@ -474,9 +520,52 @@ public class ReconciliationService : IReconciliationService
         }
         var (reconciliation, bank, ledger, matches) = data.Value;
         var lines = ReconciliationLines.Build(bank, ledger, matches);
-        var content = ReconciliationExcel.Build(reconciliation, lines);
-        var fileName = $"Conciliación {reconciliation.BankAccount!.Name} {reconciliation.PeriodStart:yyyy-MM}.xlsx";
+        var users = await UserNames([_currentUserService.AppUserId]);
+        var generatedBy = _currentUserService.AppUserId is { } userId ? users.GetValueOrDefault(userId) : null;
+
+        // "Exportar lo que veo": solo un lado y/o un estado (ej. los ingresos que faltan en ASSINET).
+        var filtered = side is not null || status is not null;
+        if (filtered)
+        {
+            lines = lines.Where(l => (side is null || l.Side == side) && LineFilter.Matches(l.Status, status)).ToList();
+        }
+        var content = ReconciliationExcel.Build(reconciliation, lines, generatedBy, filtered ? LineFilter.Title(side, status) : null);
+        var account = reconciliation.BankAccount!;
+        var suffix = filtered ? $" {LineFilter.FileSuffix(side, status)}" : "";
+        var fileName = $"Conciliación {(account.Department is null ? "" : account.Department + " ")}{account.Name} {reconciliation.PeriodStart:yyyy-MM}{suffix}.xlsx";
         return new ReportResult(new ReportFile(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName), null);
+    }
+
+    public async Task<ReportResult> AnnualReport(int year, long? bankAccountId)
+    {
+        if (year < 2000 || year > 2100)
+        {
+            return new ReportResult(null, Responses.GetError(HttpStatusCode.BadRequest, "Año no válido."));
+        }
+
+        var reconciliations = await _unitOfWork.Repository<ReconciliationEntity>().Query().Include(r => r.BankAccount)
+            .Where(r => r.PeriodStart.Year == year && (bankAccountId == null || r.BankAccountId == bankAccountId))
+            .ToListAsync();
+        var ids = reconciliations.Select(r => r.ReconciliationId).ToList();
+
+        var matches = _unitOfWork.Repository<ReconciliationMatch>().Query();
+        var unidentified = await _unitOfWork.Repository<BankMovement>().Query()
+            .Where(b => ids.Contains(b.ReconciliationId) && b.Credit > 0 && !matches.Any(m => m.BankMovementId == b.BankMovementId))
+            .ToListAsync();
+        var notDeposited = await _unitOfWork.Repository<LedgerEntry>().Query()
+            .Where(l => ids.Contains(l.ReconciliationId) && l.Debit > 0 && !matches.Any(m => m.LedgerEntryId == l.LedgerEntryId))
+            .ToListAsync();
+
+        var accounts = await _unitOfWork.Repository<BankAccount>().Query()
+            .Where(a => bankAccountId == null ? a.IsActive : a.BankAccountId == bankAccountId)
+            .OrderBy(a => a.Department).ThenBy(a => a.Bank).ThenBy(a => a.Name)
+            .ToListAsync();
+
+        var users = await UserNames([_currentUserService.AppUserId]);
+        var generatedBy = _currentUserService.AppUserId is { } userId ? users.GetValueOrDefault(userId) : null;
+        var content = ReconciliationExcel.AnnualReport(year, accounts, reconciliations, unidentified, notDeposited, generatedBy);
+        var suffix = bankAccountId is null || accounts.Count == 0 ? "" : $" {accounts[0].Department ?? accounts[0].Name}";
+        return new ReportResult(new ReportFile(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Reporte anual {year}{suffix}.xlsx"), null);
     }
 
     // ---------------------------------------------------------------------------------------
@@ -610,6 +699,13 @@ public class ReconciliationService : IReconciliationService
         account is null ? $"la cuenta {number}"
         : account.Department is null ? $"la cuenta {account.Name} ({number})"
         : $"{account.Department} ({account.Name}, cuenta {number})";
+
+    private static string ScopeText(string scope) => scope switch
+    {
+        ReconciliationScope.Income => "ingresos",
+        ReconciliationScope.Expense => "egresos",
+        _ => "ingresos y egresos",
+    };
 
     private static string? FirstText(params string?[] values) => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 

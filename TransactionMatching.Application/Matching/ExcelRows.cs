@@ -19,21 +19,30 @@ internal static partial class ExcelRows
 
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
-    public static List<object?[]> FirstSheet(byte[] content)
+    public static List<object?[]> FirstSheet(byte[] content) => Sheets(content)[0];
+
+    /// <summary>Todas las hojas, en orden (el extracto del BMSC trae además "Reporte de Pagos").</summary>
+    public static List<List<object?[]>> Sheets(byte[] content)
     {
         using var stream = new MemoryStream(content);
         using var reader = ExcelReaderFactory.CreateReader(stream);
-        var rows = new List<object?[]>();
-        while (reader.Read())
+        var sheets = new List<List<object?[]>>();
+        do
         {
-            var row = new object?[reader.FieldCount];
-            for (var i = 0; i < reader.FieldCount; i++)
+            var rows = new List<object?[]>();
+            while (reader.Read())
             {
-                row[i] = reader.GetValue(i);
+                var row = new object?[reader.FieldCount];
+                for (var i = 0; i < reader.FieldCount; i++)
+                {
+                    row[i] = reader.GetValue(i);
+                }
+                rows.Add(row);
             }
-            rows.Add(row);
+            sheets.Add(rows);
         }
-        return rows;
+        while (reader.NextResult());
+        return sheets;
     }
 
     public static string? Text(object?[] row, int index)
@@ -47,7 +56,7 @@ internal static partial class ExcelRows
         return string.IsNullOrEmpty(text) ? null : text;
     }
 
-    /// <summary>"06/10/2026", "6/10/2026" o una fecha de Excel.</summary>
+    /// <summary>"06/10/2026", "6/10/2026", "01/10/26" (año de 2 dígitos = 20xx) o una fecha de Excel.</summary>
     public static DateOnly? Date(object? value)
     {
         switch (value)
@@ -59,7 +68,7 @@ internal static partial class ExcelRows
             case string text:
                 var match = DatePattern().Match(text);
                 if (match.Success && DateOnly.TryParseExact(
-                        $"{int.Parse(match.Groups[1].Value):00}/{int.Parse(match.Groups[2].Value):00}/{match.Groups[3].Value}",
+                        $"{int.Parse(match.Groups[1].Value):00}/{int.Parse(match.Groups[2].Value):00}/{FullYear(match.Groups[3].Value)}",
                         "dd/MM/yyyy", Invariant, DateTimeStyles.None, out var date))
                 {
                     return date;
@@ -114,7 +123,10 @@ internal static partial class ExcelRows
         return Spaces().Replace(builder.ToString(), " ").Trim();
     }
 
-    [GeneratedRegex(@"(\d{1,2})/(\d{1,2})/(\d{4})")]
+    /// <summary>"26" → "2026"; "2026" queda igual.</summary>
+    private static string FullYear(string year) => year.Length == 2 ? $"20{year}" : year;
+
+    [GeneratedRegex(@"(\d{1,2})/(\d{1,2})/(\d{4}|\d{2})(?!\d)")]
     public static partial Regex DatePattern();
 
     [GeneratedRegex(@"\s+")]

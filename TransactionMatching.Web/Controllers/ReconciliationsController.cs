@@ -33,8 +33,13 @@ public class ReconciliationsController : ControllerBase
     [HttpPost]
     [Authorize(Roles = RoleNames.Writers)]
     [RequestSizeLimit(24 * 1024 * 1024)]
-    public async Task<IActionResult> Create(IFormFile? bankFile, IFormFile? ledgerFile) =>
-        Result(await _service.Create(await Read(bankFile), bankFile?.FileName ?? "", await Read(ledgerFile), ledgerFile?.FileName ?? ""));
+    public async Task<IActionResult> Create(IFormFile? bankFile, IFormFile? ledgerFile, [FromForm] string? scope) =>
+        Result(await _service.Create(await Read(bankFile), bankFile?.FileName ?? "", await Read(ledgerFile), ledgerFile?.FileName ?? "", scope));
+
+    /// <summary>Reporte anual por meses (Excel). Sin bankAccountId, todas las cuentas activas.</summary>
+    [HttpGet("annual-report")]
+    public async Task<IActionResult> AnnualReport([FromQuery] int year, [FromQuery] long? bankAccountId) =>
+        ToFile(await _service.AnnualReport(year, bankAccountId));
 
     [HttpDelete("{id}")]
     [Authorize(Roles = RoleNames.Writers)]
@@ -82,14 +87,15 @@ public class ReconciliationsController : ControllerBase
     [Authorize(Roles = RoleNames.Writers)]
     public async Task<IActionResult> Reopen(long id) => Result(await _service.SetClosed(id, false));
 
+    /// <summary>El Excel de la conciliación; con side (Income/Expense) y/o status, solo esas líneas.</summary>
     [HttpGet("{id}/export")]
-    public async Task<IActionResult> Export(long id)
-    {
-        var result = await _service.Export(id);
-        return result.File is { } file
+    public async Task<IActionResult> Export(long id, [FromQuery] string? side, [FromQuery] string? status) =>
+        ToFile(await _service.Export(id, side, status));
+
+    private IActionResult ToFile(Application.Dtos.Reports.ReportResult result) =>
+        result.File is { } file
             ? File(file.Content, file.ContentType, file.FileName)
             : StatusCode((int)result.Error!.StatusCode, result.Error);
-    }
 
     private static async Task<byte[]> Read(IFormFile? file)
     {

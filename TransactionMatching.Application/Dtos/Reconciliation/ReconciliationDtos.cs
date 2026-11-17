@@ -37,6 +37,7 @@ public class ReconciliationListItemDto
     public DateOnly PeriodStart { get; set; }
     public DateOnly PeriodEnd { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string Scope { get; set; } = string.Empty;
     public int MatchedCount { get; set; }
     public int ToReviewCount { get; set; }
     public int MissingInLedgerCount { get; set; }
@@ -111,6 +112,7 @@ public class ReconciliationDetailDto
     public DateOnly PeriodStart { get; set; }
     public DateOnly PeriodEnd { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string Scope { get; set; } = string.Empty;
     public string BankFileName { get; set; } = string.Empty;
     public string LedgerFileName { get; set; } = string.Empty;
     public decimal? BankOpeningBalance { get; set; }

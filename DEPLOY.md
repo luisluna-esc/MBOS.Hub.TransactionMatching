@@ -19,6 +19,16 @@ Puertos locales ocupados en el servidor (para no chocar al agregar otro sistema)
 FundTrack 5090-5091, Música 5092, ClockMetrics 5100-5101, TransactionMatching 5110-5111. Cada sistema entra por su dominio en el 443;
 TransactionMatching ya no tiene acceso por IP y puerto.
 
+## Primera instalación
+
+Una sola vez, como root en el servidor (crea la base, la configuración, nginx, el certificado y los
+contenedores; se puede volver a correr sin romper nada):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/luisluna-esc/MBOS.Hub.TransactionMatching/master/setup-server.sh -o /root/setup-transactionmatching.sh
+bash /root/setup-transactionmatching.sh
+```
+
 ## Actualizar a una nueva versión
 
 1. Sube los cambios a GitHub (backend y frontend).
