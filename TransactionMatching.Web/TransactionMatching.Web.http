@@ -1,0 +1,11 @@
+@TransactionMatching.Web_HostAddress = http://localhost:5152
+
+POST {{TransactionMatching.Web_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin.mbos",
+  "password": "mbos12345"
+}
+
+###
