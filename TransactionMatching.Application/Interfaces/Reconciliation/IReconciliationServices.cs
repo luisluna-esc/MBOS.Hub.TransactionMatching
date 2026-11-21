@@ -24,7 +24,7 @@ public interface IReconciliationService
     Task<ResponsePost> SetNotes(long id, NoteDto request);
     Task<ResponsePost> SetClosed(long id, bool closed);
     /// <summary>El Excel de la conciliación; con side y/o status, solo esas líneas ("exportar lo que veo").</summary>
-    Task<ReportResult> Export(long id, string? side, string? status);
+    Task<ReportResult> Export(long id, string? side, string? status, string? voucher);
     /// <summary>Reporte anual por meses: depósitos no identificados y registros sin depósito.</summary>
     Task<ReportResult> AnnualReport(int year, long? bankAccountId);
 }

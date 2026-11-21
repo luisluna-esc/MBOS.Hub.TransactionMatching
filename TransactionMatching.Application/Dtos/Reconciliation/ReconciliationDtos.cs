@@ -86,6 +86,8 @@ public class LedgerEntryDto
     public DateOnly AccountingDate { get; set; }
     public DateOnly? MovementDate { get; set; }
     public string? Batch { get; set; }
+    /// <summary>Comprobante sacado del lote: "MB - 53 1.10" → "MB 53".</summary>
+    public string? Voucher { get; set; }
     public string Description { get; set; } = string.Empty;
     public decimal Amount { get; set; }
     public string? Note { get; set; }

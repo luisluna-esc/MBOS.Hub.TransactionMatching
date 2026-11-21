@@ -87,10 +87,10 @@ public class ReconciliationsController : ControllerBase
     [Authorize(Roles = RoleNames.Writers)]
     public async Task<IActionResult> Reopen(long id) => Result(await _service.SetClosed(id, false));
 
-    /// <summary>El Excel de la conciliación; con side (Income/Expense) y/o status, solo esas líneas.</summary>
+    /// <summary>El Excel de la conciliación; con side (Income/Expense), status y/o voucher ("MB53"), solo esas líneas.</summary>
     [HttpGet("{id}/export")]
-    public async Task<IActionResult> Export(long id, [FromQuery] string? side, [FromQuery] string? status) =>
-        ToFile(await _service.Export(id, side, status));
+    public async Task<IActionResult> Export(long id, [FromQuery] string? side, [FromQuery] string? status, [FromQuery] string? voucher) =>
+        ToFile(await _service.Export(id, side, status, voucher));
 
     private IActionResult ToFile(Application.Dtos.Reports.ReportResult result) =>
         result.File is { } file

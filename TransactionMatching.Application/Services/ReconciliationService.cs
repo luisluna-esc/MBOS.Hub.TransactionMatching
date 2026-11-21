@@ -511,7 +511,7 @@ public class ReconciliationService : IReconciliationService
         return Responses.Saved(id, closed ? "Conciliación cerrada." : "Conciliación abierta de nuevo.");
     }
 
-    public async Task<ReportResult> Export(long id, string? side, string? status)
+    public async Task<ReportResult> Export(long id, string? side, string? status, string? voucher)
     {
         var data = await Load(id);
         if (data is null)
@@ -524,14 +524,16 @@ public class ReconciliationService : IReconciliationService
         var generatedBy = _currentUserService.AppUserId is { } userId ? users.GetValueOrDefault(userId) : null;
 
         // "Exportar lo que veo": solo un lado y/o un estado (ej. los ingresos que faltan en ASSINET).
-        var filtered = side is not null || status is not null;
+        var filtered = side is not null || status is not null || !string.IsNullOrWhiteSpace(voucher);
         if (filtered)
         {
-            lines = lines.Where(l => (side is null || l.Side == side) && LineFilter.Matches(l.Status, status)).ToList();
+            // Por comprobante solo quedan las filas que tienen ese asiento de ASSINET.
+            lines = lines.Where(l => (side is null || l.Side == side) && LineFilter.Matches(l.Status, status)
+                                     && (string.IsNullOrWhiteSpace(voucher) || (l.Ledger is not null && Vouchers.Matches(l.Ledger.Batch, voucher)))).ToList();
         }
-        var content = ReconciliationExcel.Build(reconciliation, lines, generatedBy, filtered ? LineFilter.Title(side, status) : null);
+        var content = ReconciliationExcel.Build(reconciliation, lines, generatedBy, filtered ? LineFilter.Title(side, status, voucher) : null);
         var account = reconciliation.BankAccount!;
-        var suffix = filtered ? $" {LineFilter.FileSuffix(side, status)}" : "";
+        var suffix = filtered ? $" {LineFilter.FileSuffix(side, status, voucher)}" : "";
         var fileName = $"Conciliación {(account.Department is null ? "" : account.Department + " ")}{account.Name} {reconciliation.PeriodStart:yyyy-MM}{suffix}.xlsx";
         return new ReportResult(new ReportFile(content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName), null);
     }
@@ -668,6 +670,7 @@ public class ReconciliationService : IReconciliationService
             AccountingDate = line.Ledger.AccountingDate,
             MovementDate = line.Ledger.MovementDate,
             Batch = line.Ledger.Batch,
+            Voucher = Vouchers.Of(line.Ledger.Batch),
             Description = line.Ledger.Description,
             Amount = line.LedgerAmount,
             Note = line.Ledger.Note,

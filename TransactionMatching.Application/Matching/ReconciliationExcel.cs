@@ -16,10 +16,13 @@ public static class LineFilter
         _ => lineStatus == filter,
     };
 
-    public static string Title(string? side, string? status) =>
-        string.Join(" · ", new[] { SideText(side), StatusText(status) }.Where(t => t is not null));
+    public static string Title(string? side, string? status, string? voucher = null) =>
+        string.Join(" · ", new[] { SideText(side), StatusText(status), VoucherText(voucher) }.Where(t => t is not null));
 
-    public static string FileSuffix(string? side, string? status) => Title(side, status).Replace(" · ", " - ");
+    public static string FileSuffix(string? side, string? status, string? voucher = null) => Title(side, status, voucher).Replace(" · ", " - ");
+
+    private static string? VoucherText(string? voucher) =>
+        string.IsNullOrWhiteSpace(voucher) ? null : $"Comprobante {voucher.Trim().ToUpperInvariant()}";
 
     private static string? SideText(string? side) => side switch
     {
